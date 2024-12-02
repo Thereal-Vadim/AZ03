@@ -1,98 +1,84 @@
+import numpy as np
+import matplotlib.pyplot as plt
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-import matplotlib.pyplot as plt
-import time
-import re
-import random
 
-def clean_price(price_text):
-    """Очистка текста цены от лишних символов"""
-    if not price_text:
-        return 0
-    price = re.sub(r'[^\d]', '', price_text)
-    return int(price) if price else 0
+# Параметры нормального распределения
+mean = 0 # Среднее значение
+std_dev = 1 # Стандартное отклонение
+num_samples = 1000 # Количество образцов
 
-def parse_divany():
-    base_url = 'https://www.divan.ru/category/divany-i-kresla'
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-    }
+# Генерация случайных чисел, распределенных по нормальному распределению
+data = np.random.normal(mean, std_dev, num_samples)
 
+# Построение гистограммы
+plt.figure(figsize=(8, 6))
+plt.hist(data, bins=30, edgecolor='black')
+plt.title('Гистограмма случайных данных, распределенных по нормальному распределению')
+plt.xlabel('Значение')
+plt.ylabel('Частота')
+plt.savefig('normal_distribution_histogram.png')
+plt.show()
+
+# Генерация двух наборов случайных данных
+random_array1 = np.random.rand(100)
+random_array2 = np.random.rand(100)
+
+# Построение диаграммы рассеяния
+plt.figure(figsize=(8, 6))
+plt.scatter(random_array1, random_array2)
+plt.title('Диаграмма рассеяния случайных данных')
+plt.xlabel('Данные 1')
+plt.ylabel('Данные 2')
+plt.savefig('scatter_plot_random_data.png')
+plt.show()
+
+# URL категории диванов
+base_url = 'https://www.divan.ru/category/divany-i-kresla'
+
+# Отправка GET-запроса
+response = requests.get(base_url)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+# Поиск элементов с диванами
+divans = soup.find_all(['div', 'article'], class_=re.compile('product|item|card'))
+
+# Список для хранения данных
+data = []
+
+for divan in divans:
     try:
-        response = requests.get(base_url, headers=headers)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # Поиск названия и цены
+        name_elem = divan.find('h3') or divan.find('div', class_=re.compile('name|title')) or divan.find('a', class_=re.compile('name|title'))
+        name = name_elem.get_text(strip=True) if name_elem else 'Без названия'
 
-        divans = soup.find_all(['div', 'article'], class_=re.compile('product|item|card'))
-        data = []
+        price_elem = divan.find('span', class_=re.compile('price|стоимость|cost')) or divan.find('div', class_=re.compile('price|стоимость|cost'))
+        price = int(re.sub(r'[^\d]', '', price_elem.get_text(strip=True))) if price_elem else 0
 
-        for divan in divans:
-            try:
-                name_elem = (divan.find('h3') or
-                             divan.find('div', class_=re.compile('name|title')) or
-                             divan.find('a', class_=re.compile('name|title')))
-                name = name_elem.get_text(strip=True) if name_elem else 'Без названия'
+        if price > 0:
+            data.append({
+                'Название': name,
+                'Цена': price
+            })
+    except Exception as e:
+        print(f"Ошибка при обработке элемента: {e}")
 
-                price_elem = (divan.find('span', class_=re.compile('price|стоимость|cost')) or
-                              divan.find('div', class_=re.compile('price|стоимость|cost')))
-                price = clean_price(price_elem.get_text(strip=True) if price_elem else '0')
+# Создание DataFrame
+df = pd.DataFrame(data)
 
-                if price > 0:
-                    data.append({
-                        'Название': name,
-                        'Цена': price
-                    })
+# Сохранение в CSV
+df.to_csv('divany_prices.csv', index=False, encoding='utf-8')
 
-            except Exception as item_error:
-                print(f"Ошибка при обработке элемента: {item_error}")
-            time.sleep(random.uniform(0.5, 2))  # Добавляем случайную задержку
+# Вычисление средней цены
+mean_price = df['Цена'].mean()
+print(f"Средняя цена на диваны: {mean_price:.2f} руб.")
 
-        if not data:
-            print("Не удалось найти данные. Возможно, страница изменилась.")
-            return None
-
-        df = pd.DataFrame(data)
-        return df
-
-    except requests.RequestException as e:
-        print(f"Ошибка при запросе: {e}")
-        return None
-
-def analyze_data(df):
-    if df is not None and not df.empty:
-        df['Ценовая категория'] = pd.cut(df['Цена'],
-                                         bins=[0, 50000, 100000, 200000, float('inf')],
-                                         labels=['Эконом', 'Средний', 'Премиум', 'Люкс'])
-        category_counts = df['Ценовая категория'].value_counts()
-        print("\nРаспределение по ценовым категориям:")
-        print(category_counts)
-
-        plt.figure(figsize=(10, 6))
-        category_counts.plot(kind='bar')
-        plt.title('Распределение диванов по ценовым категориям')
-        plt.xlabel('Ценовая категория')
-        plt.ylabel('Количество')
-        plt.tight_layout()
-        plt.savefig('divany_price_categories.png')
-        plt.close()
-
-def main():
-    print("Начало парсинга...")
-    start_time = time.time()
-
-    df = parse_divany()
-
-    if df is not None:
-        analyze_data(df)
-
-    end_time = time.time()
-    print(f"\nПарсинг завершен за {end_time - start_time:.2f} секунд")
-
-if __name__ == "__main__":
-    main()
+# Построение гистограммы
+plt.figure(figsize=(8, 6))
+plt.hist(df['Цена'], bins=30, edgecolor='black')
+plt.title('Гистограмма цен на диваны')
+plt.xlabel('Цена (руб.)')
+plt.ylabel('Количество')
+plt.savefig('divany_price_histogram.png')
+plt.show()
